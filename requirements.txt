@@ -1,4 +1,8 @@
-google-generativeai
 streamlit
+pandas
 PyPDF2
+Pillow  # PIL is now part of Pillow
+pytesseract
 pandasql
+google-generativeai
+
