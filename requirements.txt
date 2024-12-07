@@ -1,3 +1,4 @@
 google-generativeai
 streamlit
 PyPDF2
+pandas
