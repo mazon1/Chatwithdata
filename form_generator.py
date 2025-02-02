@@ -31,7 +31,7 @@ def extract_text_from_pdf(pdf_file):
     text = ""
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
-            text += page.extract_text() + "\n"
+            text += page.extract_text() + "\n" if page.extract_text() else ""
     return text if text else "No text found."
 
 # Function to Extract Text from Images
@@ -43,6 +43,11 @@ def extract_text_from_image(image_file):
 def extract_text_from_docx(doc_file):
     doc = docx.Document(doc_file)
     return "\n".join([para.text for para in doc.paragraphs])
+
+# Function to Extract Data from Excel Files
+def extract_text_from_excel(excel_file):
+    df = pd.read_excel(excel_file)
+    return df.to_string()
 
 # Function to Generate a Response with Gemini
 def generate_response(prompt):
@@ -75,22 +80,28 @@ def export_to_pdf(report_text, filename="generated_report.pdf"):
     return filename
 
 # Streamlit UI
-st.title("📄 Document Upload & Automated Report Generation")
+st.title("📄 Multi-File Upload & Automated Report Generation")
 
-uploaded_files = st.file_uploader("Upload multiple documents", type=["pdf", "docx", "jpg", "png"], accept_multiple_files=True)
+# Upload Multiple Documents
+uploaded_files = st.file_uploader("Upload multiple documents (PDF, Word, Excel, Image)", 
+                                  type=["pdf", "docx", "xlsx", "jpg", "png"], 
+                                  accept_multiple_files=True)
+
+extracted_data = {}
 
 if uploaded_files:
-    extracted_data = {}
-    
     for uploaded_file in uploaded_files:
         file_type = uploaded_file.type
-        
+        extracted_text = ""
+
         if "pdf" in file_type:
             extracted_text = extract_text_from_pdf(uploaded_file)
         elif "image" in file_type or "png" in file_type or "jpg" in file_type:
             extracted_text = extract_text_from_image(uploaded_file)
         elif "word" in file_type or "docx" in file_type:
             extracted_text = extract_text_from_docx(uploaded_file)
+        elif "excel" in file_type or "xlsx" in file_type:
+            extracted_text = extract_text_from_excel(uploaded_file)
         else:
             extracted_text = "Unsupported file format."
 
@@ -114,10 +125,11 @@ if template_file:
 
     # Select document data for report
     doc_options = st.selectbox("Select document data to use:", extracted_data.keys() if extracted_data else [])
+    
     if doc_options:
         selected_text = extracted_data[doc_options]
-
         report_text = generate_report(template_text, {"EXTRACTED_DATA": selected_text})
+
         st.text_area("📄 Generated Report:", report_text, height=300)
 
         if st.button("Export as PDF"):
