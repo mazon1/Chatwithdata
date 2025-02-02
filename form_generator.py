@@ -1,119 +1,126 @@
 import streamlit as st
-import google.generativeai as genai
-import faiss
-import numpy as np
 import pandas as pd
-import sqlite3
-from sentence_transformers import SentenceTransformer
-from docx import Document
+import os
+import pdfplumber
+import pytesseract
+from PIL import Image
+import docx
 from fpdf import FPDF
+import google.generativeai as genai
+import sqlite3
 
-# Initialize Generative AI Model
-GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY", "")
+# Configure Gemini API
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", st.secrets.get("GOOGLE_API_KEY"))
 genai.configure(api_key=GOOGLE_API_KEY)
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# Database Connection
-conn = sqlite3.connect("project_data.db")
+# Initialize SQLite Database
+conn = sqlite3.connect("uploaded_data.db")
 cursor = conn.cursor()
 
-# Create Table for Storing Grant Applications (if not exists)
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS grants (
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_name TEXT,
-    funding_org TEXT,
-    amount_requested TEXT,
-    impact TEXT,
-    timeline TEXT,
-    methodology TEXT,
-    eligibility TEXT,
-    key_objectives TEXT
+    file_name TEXT,
+    extracted_text TEXT
 )
-''')
+""")
 conn.commit()
 
-# Function to Retrieve Data from Database
-def fetch_project_data():
-    cursor.execute("SELECT * FROM grants")
-    data = cursor.fetchall()
-    return pd.DataFrame(data, columns=["ID", "Project Name", "Funding Org", "Amount Requested", "Impact", "Timeline", "Methodology", "Eligibility", "Key Objectives"])
+# Function to Extract Text from PDFs
+def extract_text_from_pdf(pdf_file):
+    text = ""
+    with pdfplumber.open(pdf_file) as pdf:
+        for page in pdf.pages:
+            text += page.extract_text() + "\n"
+    return text if text else "No text found."
 
-# Function to Generate AI-Powered Report
-def generate_report(project_name, funding_org, amount, impact, timeline, methodology, eligibility, objectives):
-    prompt = f"""
-    Generate a structured grant application report using the following details:
-    - **Project Name:** {project_name}
-    - **Funding Organization:** {funding_org}
-    - **Amount Requested:** {amount}
-    - **Impact Summary:** {impact}
-    - **Timeline:** {timeline}
-    - **Methodology:** {methodology}
-    - **Eligibility Criteria:** {eligibility}
-    - **Key Objectives:** {objectives}
+# Function to Extract Text from Images
+def extract_text_from_image(image_file):
+    image = Image.open(image_file)
+    return pytesseract.image_to_string(image)
 
-    The report should be well-structured, professional, and formatted for grant submission.
-    """
-    response = genai.GenerativeModel('gemini-pro').generate_content(prompt)
-    return response.text
+# Function to Extract Text from Word Documents
+def extract_text_from_docx(doc_file):
+    doc = docx.Document(doc_file)
+    return "\n".join([para.text for para in doc.paragraphs])
 
-# Function to Generate a Word Document
-def generate_word_doc(content):
-    doc = Document()
-    doc.add_paragraph(content)
-    file_path = "Grant_Application.docx"
-    doc.save(file_path)
-    return file_path
+# Function to Generate a Response with Gemini
+def generate_response(prompt):
+    try:
+        model = genai.GenerativeModel('gemini-pro')
+        response = model.generate_content(prompt)
+        return response.text  
+    except Exception as e:
+        st.error(f"Error generating response: {e}")
+        return "Unable to process request."
 
-# Function to Generate a PDF
-def generate_pdf(content):
+# Function to Populate a Template
+def generate_report(template_text, extracted_data):
+    report_text = template_text
+    for key, value in extracted_data.items():
+        report_text = report_text.replace(f"{{{{{key}}}}}", value)  # Replace placeholders
+    return report_text
+
+# Function to Export as PDF
+def export_to_pdf(report_text, filename="generated_report.pdf"):
     pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_font("Arial", size=12)
-    for line in content.split("\n"):
-        pdf.cell(200, 10, txt=line, ln=True, align='L')
-    file_path = "Grant_Application.pdf"
-    pdf.output(file_path)
-    return file_path
+
+    for line in report_text.split("\n"):
+        pdf.cell(200, 10, txt=line, ln=True)
+
+    pdf.output(filename)
+    return filename
 
 # Streamlit UI
-def main():
-    st.title("AI-Powered Grant Application Generator for Alberta")
-    st.write("Retrieve project data, generate structured reports, and download as PDF or Word.")
+st.title("📄 Document Upload & Automated Report Generation")
 
-    # Display Stored Projects
-    df = fetch_project_data()
-    st.dataframe(df)
+uploaded_files = st.file_uploader("Upload multiple documents", type=["pdf", "docx", "jpg", "png"], accept_multiple_files=True)
 
-    # Select a Project
-    project_selected = st.selectbox("Select a project to generate an application:", df["Project Name"])
+if uploaded_files:
+    extracted_data = {}
+    
+    for uploaded_file in uploaded_files:
+        file_type = uploaded_file.type
+        
+        if "pdf" in file_type:
+            extracted_text = extract_text_from_pdf(uploaded_file)
+        elif "image" in file_type or "png" in file_type or "jpg" in file_type:
+            extracted_text = extract_text_from_image(uploaded_file)
+        elif "word" in file_type or "docx" in file_type:
+            extracted_text = extract_text_from_docx(uploaded_file)
+        else:
+            extracted_text = "Unsupported file format."
 
-    # Get Project Data
-    project_data = df[df["Project Name"] == project_selected].iloc[0]
-    project_name = project_data["Project Name"]
-    funding_org = project_data["Funding Org"]
-    amount = project_data["Amount Requested"]
-    impact = project_data["Impact"]
-    timeline = project_data["Timeline"]
-    methodology = project_data["Methodology"]
-    eligibility = project_data["Eligibility"]
-    objectives = project_data["Key Objectives"]
+        # Save to SQLite database
+        cursor.execute("INSERT INTO documents (file_name, extracted_text) VALUES (?, ?)", 
+                       (uploaded_file.name, extracted_text))
+        conn.commit()
 
-    # Generate Report
-    if st.button("Generate Report"):
-        report_text = generate_report(project_name, funding_org, amount, impact, timeline, methodology, eligibility, objectives)
-        st.write("### Generated Report")
-        st.write(report_text)
+        extracted_data[uploaded_file.name] = extracted_text
 
-        # Download Options
-        doc_path = generate_word_doc(report_text)
-        pdf_path = generate_pdf(report_text)
+    st.success("✅ Documents uploaded and processed!")
 
-        with open(doc_path, "rb") as f:
-            st.download_button("Download Word Document", f, file_name="Grant_Application.docx")
+# Template Upload & Report Generation
+st.header("📑 Generate Report from Template")
 
-        with open(pdf_path, "rb") as f:
-            st.download_button("Download PDF", f, file_name="Grant_Application.pdf")
+template_file = st.file_uploader("Upload a report template (Word or Text file)", type=["docx", "txt"])
+if template_file:
+    template_text = extract_text_from_docx(template_file) if "docx" in template_file.type else template_file.read().decode()
 
-if __name__ == "__main__":
-    main()
+    st.text_area("📜 Template Preview:", template_text, height=200)
+
+    # Select document data for report
+    doc_options = st.selectbox("Select document data to use:", extracted_data.keys() if extracted_data else [])
+    if doc_options:
+        selected_text = extracted_data[doc_options]
+
+        report_text = generate_report(template_text, {"EXTRACTED_DATA": selected_text})
+        st.text_area("📄 Generated Report:", report_text, height=300)
+
+        if st.button("Export as PDF"):
+            pdf_filename = export_to_pdf(report_text)
+            st.success("📂 Report generated successfully!")
+            st.download_button("Download Report", open(pdf_filename, "rb"), file_name=pdf_filename, mime="application/pdf")
