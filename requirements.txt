@@ -5,4 +5,5 @@ Pillow  # PIL is now part of Pillow
 pytesseract
 pandasql
 google-generativeai
+faiss
 
