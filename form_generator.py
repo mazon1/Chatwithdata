@@ -38,10 +38,8 @@ def extract_text_from_pdf(pdf_file):
                 if extracted:
                     text += extracted + "\n"
     except Exception:
-        # Fallback to PyMuPDF
         doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
         text = "\n".join([page.get_text("text") for page in doc])
-
     return text if text else "No text found."
 
 # Function to Extract Text from Images (OCR)
@@ -57,7 +55,7 @@ def extract_text_from_docx(doc_file):
 # Function to Extract Data from Excel
 def extract_data_from_excel(excel_file):
     df = pd.read_excel(excel_file)
-    return df.to_csv(index=False)  # Convert to CSV-like format
+    return df.to_csv(index=False)  
 
 # Function to Generate a Response with Gemini
 def generate_response(prompt):
@@ -66,14 +64,13 @@ def generate_response(prompt):
         response = model.generate_content(prompt)
         return response.text  
     except Exception as e:
-        st.error(f"Error generating response: {e}")
-        return "Unable to process request."
+        return f"Error generating response: {e}"
 
 # Function to Populate a Template
 def generate_report(template_text, extracted_data):
     report_text = template_text
     for key, value in extracted_data.items():
-        report_text = report_text.replace(f"{{{{{key}}}}}", value)  # Replace placeholders
+        report_text = report_text.replace(f"{{{{{key}}}}}", value)
     return report_text
 
 # Function to Export as PDF
@@ -93,7 +90,7 @@ def export_to_pdf(report_text, filename="generated_report.pdf"):
     return filename
 
 # Streamlit UI
-st.title("📄 Multi-File Data Extraction & Report Generator")
+st.title("📄 Multi-File Data Extraction, AI Insights & Report Generator")
 
 uploaded_files = st.file_uploader("Upload multiple documents", type=["pdf", "docx", "jpg", "png", "xlsx"], accept_multiple_files=True)
 
@@ -114,7 +111,6 @@ if uploaded_files:
         else:
             extracted_text = "Unsupported file format."
 
-        # Save to SQLite database
         cursor.execute("INSERT INTO documents (file_name, extracted_text) VALUES (?, ?)", 
                        (uploaded_file.name, extracted_text))
         conn.commit()
@@ -137,7 +133,6 @@ if template_file:
 
     st.text_area("📜 Template Preview:", template_text, height=200)
 
-    # Select document data for report
     doc_options = st.selectbox("Select document data to use:", extracted_data.keys() if extracted_data else [])
     if doc_options:
         selected_text = extracted_data[doc_options]
@@ -149,6 +144,23 @@ if template_file:
             pdf_filename = export_to_pdf(report_text)
             st.success("📂 Report generated successfully!")
             st.download_button("Download Report", open(pdf_filename, "rb"), file_name=pdf_filename, mime="application/pdf")
+
+# AI Chatbot Section
+st.header("💬 AI Chatbot for Insights")
+
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+
+user_input = st.text_input("Ask a question about the extracted data:")
+if st.button("Send"):
+    if user_input:
+        st.session_state.chat_history.append({"role": "user", "content": user_input})
+        query_text = f"Based on the uploaded data, provide insights on: {user_input}"
+        response = generate_response(query_text)
+        st.session_state.chat_history.append({"role": "assistant", "content": response})
+
+for message in st.session_state.chat_history:
+    st.write(f"{message['role'].capitalize()}: {message['content']}")
 
 # Database Query Section
 st.header("🔍 Query Extracted Data")
