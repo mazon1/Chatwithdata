@@ -10,10 +10,14 @@ from PIL import Image
 import docx
 from fpdf import FPDF
 import google.generativeai as genai
+from sentence_transformers import SentenceTransformer, util
 
 # Configure Google Gemini API
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", st.secrets.get("GOOGLE_API_KEY"))
 genai.configure(api_key=GOOGLE_API_KEY)
+
+# Load Embedding Model for RAG
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
 # Initialize SQLite Database
 conn = sqlite3.connect("uploaded_data.db")
@@ -23,7 +27,8 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     file_name TEXT,
-    extracted_text TEXT
+    extracted_text TEXT,
+    embedding BLOB
 )
 """)
 conn.commit()
@@ -57,6 +62,13 @@ def extract_data_from_excel(excel_file):
     df = pd.read_excel(excel_file)
     return df.to_csv(index=False)  
 
+# Store extracted content in SQLite
+def save_to_db(file_name, extracted_text):
+    embedding = embedding_model.encode(extracted_text, convert_to_tensor=True).tolist()
+    cursor.execute("INSERT INTO documents (file_name, extracted_text, embedding) VALUES (?, ?, ?)",
+                   (file_name, extracted_text, str(embedding)))
+    conn.commit()
+
 # Function to Generate a Response with Gemini
 def generate_response(prompt):
     try:
@@ -65,6 +77,25 @@ def generate_response(prompt):
         return response.text  
     except Exception as e:
         return f"Error generating response: {e}"
+
+# Function to Retrieve Relevant Content for RAG
+def retrieve_relevant_content(query):
+    query_embedding = embedding_model.encode(query, convert_to_tensor=True)
+    
+    # Fetch embeddings from DB
+    cursor.execute("SELECT file_name, extracted_text, embedding FROM documents")
+    results = cursor.fetchall()
+    
+    best_match = None
+    best_score = 0
+    for file_name, text, embedding in results:
+        stored_embedding = eval(embedding)  # Convert back to list
+        score = util.pytorch_cos_sim(query_embedding, stored_embedding).item()
+        if score > best_score:
+            best_match = text
+            best_score = score
+    
+    return best_match if best_match else "No relevant data found."
 
 # Function to Populate a Template
 def generate_report(template_text, extracted_data):
@@ -111,10 +142,7 @@ if uploaded_files:
         else:
             extracted_text = "Unsupported file format."
 
-        cursor.execute("INSERT INTO documents (file_name, extracted_text) VALUES (?, ?)", 
-                       (uploaded_file.name, extracted_text))
-        conn.commit()
-
+        save_to_db(uploaded_file.name, extracted_text)
         extracted_data[uploaded_file.name] = extracted_text
 
     st.success("✅ Documents uploaded and processed!")
@@ -148,27 +176,8 @@ if template_file:
 # AI Chatbot Section
 st.header("💬 AI Chatbot for Insights")
 
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-
 user_input = st.text_input("Ask a question about the extracted data:")
 if st.button("Send"):
-    if user_input:
-        st.session_state.chat_history.append({"role": "user", "content": user_input})
-        query_text = f"Based on the uploaded data, provide insights on: {user_input}"
-        response = generate_response(query_text)
-        st.session_state.chat_history.append({"role": "assistant", "content": response})
-
-for message in st.session_state.chat_history:
-    st.write(f"{message['role'].capitalize()}: {message['content']}")
-
-# Database Query Section
-st.header("🔍 Query Extracted Data")
-query = st.text_input("Enter SQL query (e.g., SELECT * FROM documents WHERE file_name LIKE '%report%')")
-if query and st.button("Run Query"):
-    try:
-        df_query = pd.read_sql_query(query, conn)
-        st.dataframe(df_query)
-    except Exception as e:
-        st.error(f"Error running query: {e}")
-
+    retrieved_text = retrieve_relevant_content(user_input)
+    response = generate_response(f"Using the following data, answer concisely: {retrieved_text}")
+    st.write(f"🤖 AI: {response}")
