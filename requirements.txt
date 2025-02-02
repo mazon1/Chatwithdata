@@ -8,4 +8,4 @@ google-generativeai
 faiss-cpu
 sentence-transformers
 python-docx
-
+fpdf
