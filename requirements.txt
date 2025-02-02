@@ -5,5 +5,6 @@ Pillow  # PIL is now part of Pillow
 pytesseract
 pandasql
 google-generativeai
-faiss
+faiss-cpu
+faiss-gpu
 
