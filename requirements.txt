@@ -6,5 +6,5 @@ pytesseract
 pandasql
 google-generativeai
 faiss-cpu
-faiss-gpu
+
 
