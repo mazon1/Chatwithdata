@@ -47,7 +47,7 @@ def extract_text_from_docx(doc_file):
 # Function to Extract Data from Excel Files
 def extract_text_from_excel(excel_file):
     df = pd.read_excel(excel_file)
-    return df.to_string()
+    return df.to_string()  # Convert to readable string
 
 # Function to Generate a Response with Gemini
 def generate_response(prompt):
@@ -117,9 +117,20 @@ if uploaded_files:
 # Template Upload & Report Generation
 st.header("📑 Generate Report from Template")
 
-template_file = st.file_uploader("Upload a report template (Word or Text file)", type=["docx", "txt"])
+template_file = st.file_uploader("Upload a report template (PDF, Word, Excel, or Text file)", type=["pdf", "docx", "xlsx", "txt"])
 if template_file:
-    template_text = extract_text_from_docx(template_file) if "docx" in template_file.type else template_file.read().decode()
+    file_type = template_file.type
+    if "pdf" in file_type:
+        template_text = extract_text_from_pdf(template_file)
+    elif "docx" in file_type:
+        template_text = extract_text_from_docx(template_file)
+    elif "xlsx" in file_type:
+        template_text = extract_text_from_excel(template_file)
+    elif "text" in file_type or "txt" in file_type:
+        template_text = template_file.read().decode()
+    else:
+        st.error("Unsupported template format.")
+        template_text = ""
 
     st.text_area("📜 Template Preview:", template_text, height=200)
 
