@@ -11,3 +11,4 @@ python-docx
 fpdf
 pdfplumber
 pdf2image 
+pymupdf
