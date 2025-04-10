@@ -4,7 +4,7 @@ PyPDF2
 Pillow  # PIL is now part of Pillow
 pytesseract
 pandasql
-google-generativeai = 0.3.0
+google-generativeai
 faiss-cpu
 sentence-transformers
 python-docx
