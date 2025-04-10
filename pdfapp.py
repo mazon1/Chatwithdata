@@ -23,7 +23,7 @@ def extract_text_from_pdf(pdf_file):
 # Function to generate response from the model
 def generate_response(prompt, context):
     try:
-        model = genai.GenerativeModel('gemini-pro')
+        model = genai.GenerativeModel('gemini-1.5-pro')
         # Include context from uploaded data in the prompt
         response = model.generate_content(f"{prompt}\n\nContext:\n{context}")
         return response.text  # Use 'text' attribute
